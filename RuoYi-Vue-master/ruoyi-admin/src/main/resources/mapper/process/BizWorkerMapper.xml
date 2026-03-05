@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.process.mapper.BizWorkerMapper">
+    
+    <resultMap type="BizWorker" id="BizWorkerResult">
+        <result property="workerId"    column="worker_id"    />
+        <result property="workerName"    column="worker_name"    />
+        <result property="workerCode"    column="worker_code"    />
+        <result property="teamName"    column="team_name"    />
+        <result property="status"    column="status"    />
+    </resultMap>
+
+    <sql id="selectBizWorkerVo">
+        select worker_id, worker_name, worker_code, team_name, status from biz_worker
+    </sql>
+
+    <select id="selectBizWorkerList" parameterType="BizWorker" resultMap="BizWorkerResult">
+        <include refid="selectBizWorkerVo"/>
+        <where>  
+            <if test="workerName != null  and workerName != ''"> and worker_name like concat('%', #{workerName}, '%')</if>
+            <if test="workerCode != null  and workerCode != ''"> and worker_code = #{workerCode}</if>
+            <if test="teamName != null  and teamName != ''"> and team_name like concat('%', #{teamName}, '%')</if>
+            <if test="status != null  and status != ''"> and status = #{status}</if>
+        </where>
+    </select>
+    
+    <select id="selectBizWorkerById" parameterType="Long" resultMap="BizWorkerResult">
+        <include refid="selectBizWorkerVo"/>
+        where worker_id = #{workerId}
+    </select>
+
+    <insert id="insertBizWorker" parameterType="BizWorker" useGeneratedKeys="true" keyProperty="workerId">
+        insert into biz_worker
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="workerName != null">worker_name,</if>
+            <if test="workerCode != null">worker_code,</if>
+            <if test="teamName != null">team_name,</if>
+            <if test="status != null">status,</if>
+         </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="workerName != null">#{workerName},</if>
+            <if test="workerCode != null">#{workerCode},</if>
+            <if test="teamName != null">#{teamName},</if>
+            <if test="status != null">#{status},</if>
+         </trim>
+    </insert>
+
+    <update id="updateBizWorker" parameterType="BizWorker">
+        update biz_worker
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="workerName != null">worker_name = #{workerName},</if>
+            <if test="workerCode != null">worker_code = #{workerCode},</if>
+            <if test="teamName != null">team_name = #{teamName},</if>
+            <if test="status != null">status = #{status},</if>
+        </trim>
+        where worker_id = #{workerId}
+    </update>
+
+    <delete id="deleteBizWorkerByWorkerId" parameterType="Long">
+        delete from biz_worker where worker_id = #{workerId}
+    </delete>
+
+    <delete id="deleteBizWorkerByWorkerIds" parameterType="String">
+        delete from biz_worker where worker_id in 
+        <foreach item="workerId" collection="array" open="(" separator="," close=")">
+            #{workerId}
+        </foreach>
+    </delete>
+</mapper>

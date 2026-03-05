@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.process.mapper.BizSopStepMapper">
+    
+    <resultMap type="BizSopStep" id="BizSopStepResult">
+        <result property="stepId"    column="step_id"    />
+        <result property="modelCode"    column="model_code"    />
+        <result property="processStage"    column="process_stage"    />
+        <result property="stepOrder"    column="step_order"    />
+        <result property="stepTitle"    column="step_title"    />
+        <result property="stepDesc"    column="step_desc"    />
+        <result property="imageUrl"    column="image_url"    />
+        <result property="detectTarget"    column="detect_target"    />
+        <result property="roiConfig"    column="roi_config"    />
+    </resultMap>
+
+    <sql id="selectBizSopStepVo">
+        select step_id, model_code, process_stage, step_order, step_title, step_desc, image_url, detect_target, roi_config
+        from biz_sop_step
+    </sql>
+
+    <select id="selectBizSopStepList" parameterType="BizSopStep" resultMap="BizSopStepResult">
+        <include refid="selectBizSopStepVo"/>
+        <where>  
+            <if test="modelCode != null  and modelCode != ''"> and model_code like concat('%', #{modelCode}, '%')</if>
+            <if test="processStage != null  and processStage != ''"> and process_stage = #{processStage}</if>
+            <if test="stepOrder != null "> and step_order = #{stepOrder}</if>
+            <if test="stepTitle != null  and stepTitle != ''"> and step_title = #{stepTitle}</if>
+            <if test="stepDesc != null  and stepDesc != ''"> and step_desc = #{stepDesc}</if>
+            <if test="imageUrl != null  and imageUrl != ''"> and image_url = #{imageUrl}</if>
+            <if test="detectTarget != null  and detectTarget != ''"> and detect_target = #{detectTarget}</if>
+            <if test="roiConfig != null  and roiConfig != ''"> and roi_config = #{roiConfig}</if>
+        </where>
+    </select>
+    
+    <select id="selectBizSopStepByStepId" parameterType="Long" resultMap="BizSopStepResult">
+        <include refid="selectBizSopStepVo"/>
+        where step_id = #{stepId}
+    </select>
+
+    <insert id="insertBizSopStep" parameterType="BizSopStep">
+        insert into biz_sop_step
+        <trim prefix="(" suffix=")" suffixOverrides=",">model_code,
+            <if test="processStage != null">process_stage,</if>
+            <if test="stepOrder != null">step_order,</if>
+            <if test="stepTitle != null">step_title,</if>
+            <if test="stepDesc != null">step_desc,</if>
+            <if test="imageUrl != null">image_url,</if>
+            <if test="detectTarget != null">detect_target,</if>
+            <if test="roiConfig != null">roi_config,</if>
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            #{modelCode},
+
+            <if test="processStage != null">#{processStage},</if>
+            <if test="stepOrder != null">#{stepOrder},</if>
+            <if test="stepTitle != null">#{stepTitle},</if>
+            <if test="stepDesc != null">#{stepDesc},</if>
+            <if test="imageUrl != null">#{imageUrl},</if>
+            <if test="detectTarget != null">#{detectTarget},</if>
+            <if test="roiConfig != null">#{roiConfig},</if>
+        </trim>
+    </insert>
+
+    <update id="updateBizSopStep" parameterType="BizSopStep">
+        update biz_sop_step
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="modelCode != null">model_code = #{modelCode},</if>
+            <if test="processStage != null">process_stage = #{processStage},</if>
+            <if test="stepOrder != null">step_order = #{stepOrder},</if>
+            <if test="stepTitle != null">step_title = #{stepTitle},</if>
+            <if test="stepDesc != null">step_desc = #{stepDesc},</if>
+            <if test="imageUrl != null">image_url = #{imageUrl},</if>
+            <if test="detectTarget != null">detect_target = #{detectTarget},</if>
+            <if test="roiConfig != null">roi_config = #{roiConfig},</if>
+        </trim>
+        where step_id = #{stepId}
+    </update>
+
+    <delete id="deleteBizSopStepByStepId" parameterType="Long">
+        delete from biz_sop_step where step_id = #{stepId}
+    </delete>
+
+    <delete id="deleteBizSopStepByStepIds" parameterType="String">
+        delete from biz_sop_step where step_id in 
+        <foreach item="stepId" collection="array" open="(" separator="," close=")">
+            #{stepId}
+        </foreach>
+    </delete>
+</mapper>

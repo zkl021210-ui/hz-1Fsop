@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.process.mapper.BizAssemblyTaskMapper">
+
+    <resultMap type="com.ruoyi.process.domain.BizAssemblyTask" id="BizAssemblyTaskResult">
+        <result property="taskId"           column="task_id"    />
+        <result property="modelCode"        column="device_type"    />
+        <result property="deviceSn"         column="device_sn"    />
+        <result property="workerId"         column="worker_id"    />
+        <result property="workerName"       column="worker_name"    />
+        <result property="currentStepIndex" column="current_step_index"    />
+        <result property="status"           column="status"    />
+        <result property="createTime"       column="create_time"    />
+        <result property="assemblyRound"    column="assembly_round"    />
+        <result property="updateTime"       column="update_time"    />
+    </resultMap>
+
+    <sql id="selectBizAssemblyTaskVo">
+        select task_id, device_type, device_sn, worker_id, worker_name, current_step_index, status, assembly_round, create_by, create_time, update_by, update_time, remark from biz_assembly_task
+    </sql>
+
+    <select id="selectBizAssemblyTaskBySn" parameterType="String" resultMap="BizAssemblyTaskResult">
+        <include refid="selectBizAssemblyTaskVo"/>
+        where device_sn = #{deviceSn}
+
+        limit 1
+    </select>
+
+    <select id="selectBizAssemblyTaskList" parameterType="com.ruoyi.process.domain.BizAssemblyTask" resultMap="BizAssemblyTaskResult">
+        <include refid="selectBizAssemblyTaskVo"/>
+        <where>
+            <if test="modelCode != null  and modelCode != ''"> and device_type = #{modelCode}</if>
+            <if test="deviceSn != null  and deviceSn != ''"> and device_sn = #{deviceSn}</if>
+            <if test="workerName != null  and workerName != ''"> and worker_name like concat('%', #{workerName}, '%')</if>
+            <if test="params.beginTime != null and params.beginTime != ''">
+                and date_format(create_time,'%y%m%d') &gt;= date_format(#{params.beginTime},'%y%m%d')
+            </if>
+            <if test="params.endTime != null and params.endTime != ''">
+                and date_format(create_time,'%y%m%d') &lt;= date_format(#{params.endTime},'%y%m%d')
+            </if>
+        </where>
+    </select>
+
+    <insert id="insertBizAssemblyTask" parameterType="com.ruoyi.process.domain.BizAssemblyTask" useGeneratedKeys="true" keyProperty="taskId">
+        insert into biz_assembly_task
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="modelCode != null">device_type,</if>
+            <if test="deviceSn != null">device_sn,</if>
+            <if test="workerId != null">worker_id,</if>
+            <if test="workerName != null">worker_name,</if>
+            <if test="currentStepIndex != null">current_step_index,</if>
+            <if test="status != null">status,</if>
+            <if test="assemblyRound != null">assembly_round,</if>
+            <if test="createTime != null">create_time,</if>
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="modelCode != null">#{modelCode},</if>
+            <if test="deviceSn != null">#{deviceSn},</if>
+            <if test="workerId != null">#{workerId},</if>
+            <if test="workerName != null">#{workerName},</if>
+            <if test="currentStepIndex != null">#{currentStepIndex},</if>
+            <if test="status != null">#{status},</if>
+            <if test="assemblyRound != null">#{assemblyRound},</if>
+            <if test="createTime != null">#{createTime},</if>
+        </trim>
+    </insert>
+
+    <update id="updateBizAssemblyTask" parameterType="com.ruoyi.process.domain.BizAssemblyTask">
+        update biz_assembly_task
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="currentStepIndex != null">current_step_index = #{currentStepIndex},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </trim>
+        where task_id = #{taskId}
+    </update>
+
+    <select id="selectBizAssemblyTaskById" parameterType="Long" resultMap="BizAssemblyTaskResult">
+        <include refid="selectBizAssemblyTaskVo"/>
+        where task_id = #{taskId}
+    </select>
+
+</mapper>
