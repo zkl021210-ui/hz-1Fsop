@@ -138,18 +138,16 @@ xss:
   # 匹配链接
   urlPatterns: /system/*,/monitor/*,/tool/*
 
-# ===================================================================
 # AI 服务配置 (YOLO 算法)
-# ===================================================================
 ai:
   service:
     # ----------------- ↓↓↓ 开发环境配置 (请修改为您的本地路径) ↓↓↓ -----------------
     # Python 解释器完整路径 (例如: D:\\software\\anaconda\\python.exe)
-    python-exe: D:\\software\\anaconda\\python.exe
+    python-exe:
     # Python 脚本完整路径 (例如: C:\\Users\\zkl\\Desktop\\yolo_SOP\\yolo\\yolo_item\\test.py)
-    script-path: C:\\Users\\zkl\\Desktop\\yolo_SOP\\yolo\\yolo_item\\test.py
+    script-path:
     # Python 脚本的工作目录 (脚本所在的文件夹)
-    work-dir: C:\\Users\\zkl\\Desktop\\yolo_SOP\\yolo\\yolo_item
+    work-dir:
     # Python API 服务的根地址
     api-url: http://localhost:5000
 

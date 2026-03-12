@@ -13,7 +13,6 @@ public interface IBizAssemblyLogService
      * * @param logId 装配流水日志主键
      * @return 装配流水日志
      */
-    // 🔴 修复点：这里必须和实现类一样，叫 ById，不要叫 ByLogId
     public BizAssemblyLog selectBizAssemblyLogById(Long logId);
 
     /**

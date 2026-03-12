@@ -7,9 +7,6 @@ import com.ruoyi.common.core.domain.BaseEntity;
 
 /**
  * 转辙机型号对象 biz_device_model
- * 
- * @author ruoyi
- * @date 2025-12-23
  */
 public class BizDeviceModel extends BaseEntity
 {

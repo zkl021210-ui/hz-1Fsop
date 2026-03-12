@@ -21,12 +21,6 @@ import com.ruoyi.process.service.IBizDeviceModelService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 
-/**
- * 转辙机型号Controller
- * 
- * @author ruoyi
- * @date 2025-12-23
- */
 @RestController
 @RequestMapping("/process/model")
 public class BizDeviceModelController extends BaseController

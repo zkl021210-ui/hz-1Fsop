@@ -7,9 +7,7 @@ import com.ruoyi.common.core.domain.BaseEntity;
 
 /**
  * SOP步骤配置对象 biz_sop_step
- * 
- * @author ruoyi
- * @date 2025-12-23
+ *
  */
 public class BizSopStep extends BaseEntity
 {

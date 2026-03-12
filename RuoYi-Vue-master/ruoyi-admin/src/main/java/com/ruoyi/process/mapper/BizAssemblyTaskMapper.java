@@ -7,9 +7,6 @@ import com.ruoyi.process.domain.BizAssemblyTask;
 @Mapper
 public interface BizAssemblyTaskMapper
 {
-    /**
-     * 🔥 补上这个缺失的方法
-     */
     public BizAssemblyTask selectBizAssemblyTaskById(Long taskId);
 
     // 你的其他方法...

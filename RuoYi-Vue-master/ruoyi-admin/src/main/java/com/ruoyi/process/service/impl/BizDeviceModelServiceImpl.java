@@ -9,9 +9,6 @@ import com.ruoyi.process.service.IBizDeviceModelService;
 
 /**
  * 转辙机型号Service业务层处理
- * 
- * @author ruoyi
- * @date 2025-12-23
  */
 @Service
 public class BizDeviceModelServiceImpl implements IBizDeviceModelService 

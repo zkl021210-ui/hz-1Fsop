@@ -11,18 +11,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * SOP 执行控制器 (修正版)
- * 核心职责：只做路由转发，业务逻辑全部下沉到 Service
+ * SOP 执行控制器
+ * 核心职责：路由转发
  */
 @RestController
 @RequestMapping("/process/sop")
 public class SopExecutionController extends BaseController {
 
-    // ❌ 删除：不要在这里直接操作日志和Python
-    // @Autowired private IBizAssemblyLogService logService;
-    // @Autowired private PythonInteractionService pythonService;
-
-    // ✅ 新增：只依赖 TaskService，它包含了完整的防重和流转逻辑
     @Autowired
     private IBizAssemblyTaskService taskService;
 

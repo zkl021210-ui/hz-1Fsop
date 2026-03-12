@@ -62,7 +62,6 @@ public class UpdateStepConfigRequest {
         this.workerName = workerName;
     }
 
-    // 新增 stepName 的 getter 和 setter
     public String getStepName() {
         return stepName;
     }

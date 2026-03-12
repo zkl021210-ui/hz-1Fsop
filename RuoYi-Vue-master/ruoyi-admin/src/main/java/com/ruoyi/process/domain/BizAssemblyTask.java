@@ -44,17 +44,9 @@ public class BizAssemblyTask extends BaseEntity
     @Excel(name = "装配轮次")
     private Integer assemblyRound;
 
-    // ==========================================
-    // 关键修复区域
-    // ==========================================
-
     public void setTaskId(Long taskId) { this.taskId = taskId; }
     public Long getTaskId() { return taskId; }
 
-    /** * 修复了这里的大小写错误
-     * 错误: this.ModelCode = ModelCode;
-     * 正确: this.modelCode = modelCode;
-     */
     public void setModelCode(String modelCode)
     {
         this.modelCode = modelCode;
@@ -82,19 +74,6 @@ public class BizAssemblyTask extends BaseEntity
     public void setAssemblyRound(Integer assemblyRound) { this.assemblyRound = assemblyRound; }
     public Integer getAssemblyRound() { return assemblyRound; }
 
-    // 注意：如果是若依标准版，BaseEntity里已经有 createTime 和 updateTime 了
-    // 如果您发现时间显示不出来，请尝试删除下面被注释掉的代码，直接使用父类的方法
-    /*
-    @Override
-    public Date getCreateTime() { return createTime; }
-    @Override
-    public void setCreateTime(Date createTime) { this.createTime = createTime; }
-
-    @Override
-    public Date getUpdateTime() { return updateTime; }
-    @Override
-    public void setUpdateTime(Date updateTime) { this.updateTime = updateTime; }
-    */
 
     @Override
     public String toString() {

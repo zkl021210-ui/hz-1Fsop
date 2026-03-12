@@ -5,9 +5,6 @@ import com.ruoyi.process.domain.BizDeviceModel;
 
 /**
  * 转辙机型号Service接口
- * 
- * @author ruoyi
- * @date 2025-12-23
  */
 public interface IBizDeviceModelService 
 {

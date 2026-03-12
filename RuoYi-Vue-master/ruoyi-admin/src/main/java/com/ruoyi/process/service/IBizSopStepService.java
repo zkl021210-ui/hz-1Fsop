@@ -5,9 +5,6 @@ import com.ruoyi.process.domain.BizSopStep;
 
 /**
  * SOP步骤配置Service接口
- * 
- * @author ruoyi
- * @date 2025-12-23
  */
 public interface IBizSopStepService 
 {
