@@ -18,19 +18,15 @@ public class PythonInteractionService {
     @Value("${ai.service.api-url}")
     private String pythonApiUrl;
 
-    /**
-     * 【新增】简化版启动：仅开启录像，不更新配置
-     * 用于解决 BizAssemblyTaskServiceImpl 中的报错
-     */
     public void startRecording(String filename) {
         String recordUrl = pythonApiUrl + "/record/start";
         Map<String, String> recordParams = new HashMap<>();
         recordParams.put("filename", filename);
         try {
             restTemplate.postForObject(recordUrl, recordParams, String.class);
-            System.out.println("🚀 [Python] 已发送录像指令: " + filename);
+            System.out.println("[Python] 已发送录像指令: " + filename);
         } catch (Exception e) {
-            System.err.println("❌ 录像启动失败: " + e.getMessage());
+            System.err.println(" 录像启动失败: " + e.getMessage());
         }
     }
 
@@ -49,30 +45,27 @@ public class PythonInteractionService {
 
         try {
             restTemplate.postForObject(configUrl, configParams, String.class);
-            System.out.println("🛠️ [Python] AI配置更新成功: " + req.getDeviceSn());
+            System.out.println(" [Python] AI配置更新成功: " + req.getDeviceSn());
         } catch (Exception e) {
-            System.err.println("❌ AI配置更新失败: " + e.getMessage());
+            System.err.println(" AI配置更新失败: " + e.getMessage());
         }
 
         // 2. 调用上面的简化版开始录像
         this.startRecording(filename);
     }
 
-    /**
-     * 【核心】停止录像并获取文件名
-     */
     public String stopRecording() {
         String url = pythonApiUrl + "/record/stop";
         try {
             // 注意：StopRecordResponse 中的字段名必须是 filename (全小写)
             StopRecordResponse response = restTemplate.postForObject(url, null, StopRecordResponse.class);
             if (response != null && response.getFilename() != null) {
-                System.out.println("🎥 [Python] 录制完成，文件名: " + response.getFilename());
+                System.out.println(" [Python] 录制完成，文件名: " + response.getFilename());
                 return response.getFilename();
             }
             return null;
         } catch (Exception e) {
-            System.err.println("❌ 停止录像请求异常: " + e.getMessage());
+            System.err.println(" 停止录像请求异常: " + e.getMessage());
             return null;
         }
     }

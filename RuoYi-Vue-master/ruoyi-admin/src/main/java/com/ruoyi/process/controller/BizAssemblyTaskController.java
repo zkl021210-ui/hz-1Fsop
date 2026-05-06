@@ -47,7 +47,7 @@ public class BizAssemblyTaskController extends BaseController
         String deviceSn = payload.get("deviceSn");
         String action = payload.get("action");
 
-        System.out.println("🤖 [Java] 收到 AI 通知: 设备=" + deviceSn + ", 动作=" + action);
+        System.out.println(" [Java] 收到 AI 通知: 设备=" + deviceSn + ", 动作=" + action);
 
         if ("AUTO_NEXT".equals(action)) {
             if (StringUtils.isEmpty(deviceSn)) {

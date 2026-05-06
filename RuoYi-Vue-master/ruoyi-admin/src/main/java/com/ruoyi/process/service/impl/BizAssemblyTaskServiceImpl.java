@@ -9,15 +9,11 @@ import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
-
-// 依赖的实体与DTO
 import com.ruoyi.process.domain.BizAssemblyLog;
 import com.ruoyi.process.domain.BizAssemblyTask;
 import com.ruoyi.process.domain.BizWorker;
 import com.ruoyi.process.domain.BizSopStep;
 import com.ruoyi.process.domain.dto.SopStepActionRequest;
-
-// 依赖的 Mapper 与 Service
 import com.ruoyi.process.mapper.BizAssemblyLogMapper;
 import com.ruoyi.process.mapper.BizAssemblyTaskMapper;
 import com.ruoyi.process.mapper.BizSopStepMapper;
@@ -46,9 +42,7 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
     @Autowired
     private BizSopStepMapper bizSopStepMapper;
 
-    // =================================================================================
-    // ✅ 1. 开启步骤 / 归档 (双重判定 - 强力补全版)
-    // =================================================================================
+    //  开启步骤 / 归档
     @Override
     @Transactional
     public Long startSopStep(SopStepActionRequest req) {
@@ -67,7 +61,7 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
 
         // 2. 通知 Python (仅在非归档时)
         if (!isDirectFinish) {
-            // 🔥 [修复] 必须确保拿到 stepOrder 才能找下一关
+            // 必须确保拿到 stepOrder 才能找下一关
             Integer stepOrder = req.getStepOrder();
             String currentTarget = req.getTarget();
 
@@ -84,19 +78,19 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
                 }
             }
 
-            // 🔥 [核心] 查找并注入 "第二关" (Next Target)
+            // 查找并注入 "第二关" (Next Target)
             if (stepOrder != null && StringUtils.isNotEmpty(req.getModelCode())) {
                 String nextTarget = findTargetByOrder(req.getModelCode(), stepOrder + 1);
 
                 if (StringUtils.isNotEmpty(nextTarget)) {
                     req.setNextTarget(nextTarget);
-                    System.out.println("🔗 [双重判定] 成功配置: 第1关[" + req.getTarget() + "] -> 第2关[" + nextTarget + "]");
+                    System.out.println("[双重判定] 成功配置: 第1关[" + req.getTarget() + "] -> 第2关[" + nextTarget + "]");
                 } else {
                     req.setNextTarget(null);
-                    System.out.println("🔗 [单重判定] 仅检测当前目标: " + req.getTarget());
+                    System.out.println("[单重判定] 仅检测当前目标: " + req.getTarget());
                 }
             } else {
-                System.err.println("❌ [警告] 无法获取 StepOrder 或 ModelCode，双重判定失效！");
+                System.err.println(" [警告] 无法获取 StepOrder 或 ModelCode，双重判定失效！");
             }
 
             // 启动录像
@@ -107,9 +101,7 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
 
         // 3. 幂等检查 (复用逻辑)
         if (!isDirectFinish) {
-            // 🔥 [优化] 查找最后一条日志，不管它是通过 ID 还是 Order 查到的
             BizAssemblyLog existingLog = bizAssemblyLogMapper.selectLastLog(deviceSn, null, round);
-            // 只有当它是“进行中”且“StepId匹配”时才复用
             if (existingLog != null && "1".equals(existingLog.getStatus()) && existingLog.getStepId().equals(stepId)) {
                 return existingLog.getId();
             }
@@ -169,24 +161,22 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
         bizAssemblyLogMapper.updateBizAssemblyLog(log);
     }
 
-    // =================================================================================
-    // ✅ 3. AI 自动流转 (修复日志查找 + 双重判定)
-    // =================================================================================
+    //  3. AI 自动流转 (修复日志查找 + 双重判定)
     @Override
     @Transactional
     public boolean completeStepByAi(String deviceSn) {
-        // 🔥 【保险 1】最外层包裹 try-catch
+        // 最外层包裹 try-catch
         try {
             System.out.println("========== [AI过站逻辑启动] SN: " + deviceSn + " ==========");
 
             // 1. 检查任务状态
             BizAssemblyTask task = bizAssemblyTaskMapper.selectBizAssemblyTaskBySn(deviceSn);
             if (task == null) {
-                System.err.println("❌ 严重错误：找不到 SN=" + deviceSn + " 的任务！");
+                System.err.println("严重错误：找不到 SN=" + deviceSn + " 的任务！");
                 return false;
             }
             if (!"0".equals(task.getStatus())) {
-                System.err.println("⚠️ 任务未开始或已结束，状态: " + task.getStatus());
+                System.err.println("任务未开始或已结束，状态: " + task.getStatus());
                 return false;
             }
 
@@ -197,7 +187,7 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
             try {
                 videoFileName = pythonService.stopRecording();
             } catch (Exception e) {
-                System.err.println("⚠️ 停止录像失败(不影响业务): " + e.getMessage());
+                System.err.println("停止录像失败(不影响业务): " + e.getMessage());
             }
 
             // 构造宽泛查询
@@ -206,12 +196,12 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
             query.setStatus("1");
             List<BizAssemblyLog> runningLogs = bizAssemblyLogMapper.selectBizAssemblyLogList(query);
 
-            System.out.println("🔍 查到进行中日志条数: " + (runningLogs == null ? 0 : runningLogs.size()));
+            System.out.println("查到进行中日志条数: " + (runningLogs == null ? 0 : runningLogs.size()));
 
             if (runningLogs != null && !runningLogs.isEmpty()) {
                 BizAssemblyLog lastRunningLog = runningLogs.get(runningLogs.size() - 1);
 
-                System.out.println("👉 锁定目标日志 ID: " + lastRunningLog.getId() + " | 步骤: " + lastRunningLog.getProcessStage());
+                System.out.println("锁定目标日志 ID: " + lastRunningLog.getId() + " | 步骤: " + lastRunningLog.getProcessStage());
 
                 // 🔥 核心动作：只填入时间，状态保持 "1" (进行中)
                 lastRunningLog.setEndTime(new Date());
@@ -225,12 +215,12 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
 
                 // ⚡️ 立即执行更新
                 bizAssemblyLogMapper.updateBizAssemblyLog(lastRunningLog);
-                System.out.println("✅ 已更新结束时间 (状态保持进行中)");
+                System.out.println(" 已更新结束时间 (状态保持进行中)");
 
                 // 更新 list 中的对象
                 runningLogs.set(runningLogs.size() - 1, lastRunningLog);
             } else {
-                System.err.println("⚠️ 严重警告：数据库里没有该设备正在进行的日志！结束时间无法记录！");
+                System.err.println("严重警告：数据库里没有该设备正在进行的日志！结束时间无法记录！");
             }
 
             // ---------------------------------------------------------
@@ -242,28 +232,28 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
             List<BizSopStep> allSteps = bizSopStepMapper.selectBizSopStepList(stepQuery);
 
             if (allSteps == null || allSteps.isEmpty()) {
-                System.err.println("❌ 严重错误：找不到型号 " + modelCode + " 的SOP步骤配置！");
+                System.err.println(" 严重错误：找不到型号 " + modelCode + " 的SOP步骤配置！");
                 return false;
             }
             int totalSteps = allSteps.size();
 
-            // 🔥 【修复】防止空指针
+            // 【修复】防止空指针
             int currentIndex = (task.getCurrentStepIndex() == null) ? 1 : task.getCurrentStepIndex();
             int nextIndex = currentIndex + 1;
 
-            System.out.println("📊 进度: 当前第 " + currentIndex + " 步 -> 准备进入第 " + nextIndex + " 步 (总 " + totalSteps + " 步)");
+            System.out.println(" 进度: 当前第 " + currentIndex + " 步 -> 准备进入第 " + nextIndex + " 步 (总 " + totalSteps + " 步)");
 
-            // 🔥 【核心修改区域】 如果刚才做的是最后一步
+            // 【核心修改区域】 如果刚才做的是最后一步
             if (currentIndex >= totalSteps) {
                 // 用户要求：即使是最后一步，日志状态也保持 "1"，任务状态也保持 "0"
                 // 所有的“完成”状态由人工点击“入库”触发
 
                 // 这里不需要再把日志 update 成 "2" 了，因为 A 部分已经 update 过了
-                System.out.println("🎉 最后一步AI检测通过，状态保持[进行中]，等待人工入库。");
+                System.out.println(" 最后一步AI检测通过，状态保持[进行中]，等待人工入库。");
 
                 // 任务主状态：保持 "0" (进行中)
                 task.setStatus("0");
-                System.out.println("🎉 AI流程全部结束，等待入库操作。");
+                System.out.println(" AI流程全部结束，等待入库操作。");
             } else {
                 task.setStatus("0"); // 继续进行
             }
@@ -273,7 +263,7 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
             bizAssemblyTaskMapper.updateBizAssemblyTask(task);
 
             // ---------------------------------------------------------
-// C. 开启下一步 (修改版：增加历史零件白名单下发)
+// C. 开启下一步
 // ---------------------------------------------------------
             if (nextIndex <= totalSteps) {
                 try {
@@ -293,9 +283,6 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
                         nextReq.setAssemblyRound(task.getAssemblyRound());
                         nextReq.setWorkerName(task.getWorkerName());
 
-                        // ---------------------------------------------------------
-                        // 🔥 [新增] 查询并设置“历史零件白名单”
-                        // ---------------------------------------------------------
                         // 逻辑：在所有步骤中，找到序号比下一步(nextIndex)小的步骤，把它们的目标取出来
                         if (allSteps != null && !allSteps.isEmpty()) {
                             List<String> historyList = allSteps.stream()
@@ -312,22 +299,18 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
                             // 放入请求体 (请确保 SopStepActionRequest 类里加了 List<String> historyTargets 字段)
                             nextReq.setHistoryTargets(historyList);
 
-                            System.out.println("📜 [历史白名单] 下发给Python的历史零件: " + historyList);
+                            System.out.println(" [历史白名单] 下发给Python的历史零件: " + historyList);
                         }
-                        // ---------------------------------------------------------
 
-                        // 找第二关 (下下步)
                         String futureTarget = allSteps.stream()
                                 .filter(s -> s.getStepOrder() != null && s.getStepOrder().equals(nextIndex + 1))
                                 .map(BizSopStep::getDetectTarget)
                                 .findFirst().orElse(null);
                         nextReq.setNextTarget(futureTarget);
 
-                        // 启动录像
                         String nextVideoName = String.format("%s_step%d_%d.mp4", deviceSn, nextIndex, System.currentTimeMillis());
                         pythonService.startStepRecording(nextReq, nextVideoName);
 
-                        // 插入新日志
                         BizAssemblyLog nextLog = new BizAssemblyLog();
                         nextLog.setSerialNumber(deviceSn);
                         nextLog.setStepId(nextSopStep.getStepId());
@@ -341,32 +324,27 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
                         nextLog.setProcessStage(nextSopStep.getStepTitle() + suffix);
 
                         bizAssemblyLogMapper.insertBizAssemblyLog(nextLog);
-                        System.out.println("🚀 下一步骤已开启: " + nextSopStep.getStepTitle());
+                        System.out.println(" 下一步骤已开启: " + nextSopStep.getStepTitle());
                     } else {
-                        System.err.println("❌ 警告：计算出下一步是 " + nextIndex + "，但在 SOP 表里没找到对应的配置！");
+                        System.err.println(" 警告：计算出下一步是 " + nextIndex + "，但在 SOP 表里没找到对应的配置！");
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
-                    System.err.println("❌ 开启下一步失败，但上一步结束时间已保存。错误: " + e.getMessage());
+                    System.err.println(" 开启下一步失败，但上一步结束时间已保存。错误: " + e.getMessage());
                 }
             }
 
             return true;
 
         } catch (Exception e) {
-            // 🔥 【保险 2】强制打印堆栈
-            System.err.println("\n\n################################################");
-            System.err.println("❌❌❌ AI 过站发生严重崩溃！错误详情如下：");
+            // 强制打印堆栈
+            System.err.println("！错误：");
             e.printStackTrace();
-            System.err.println("################################################\n\n");
             throw new RuntimeException(e);
         }
     }
 
-    // =================================================================================
-    // 🔧 辅助工具方法
-    // =================================================================================
-
+    // 辅助工具方法
     /**
      * 根据 Order 查找目标 (优化版)
      */
@@ -384,9 +362,7 @@ public class BizAssemblyTaskServiceImpl implements IBizAssemblyTaskService
         return null;
     }
 
-    // =================================================================================
-    // 4. 任务管理逻辑 (保持不变)
-    // =================================================================================
+    // 4. 任务管理逻辑
     @Override
     @Transactional
     public BizAssemblyTask startTask(BizAssemblyTask taskParams)

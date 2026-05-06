@@ -5,9 +5,7 @@ import com.ruoyi.process.domain.BizDeviceModel;
 
 /**
  * 转辙机型号Mapper接口
- * 
- * @author ruoyi
- * @date 2025-12-23
+ *
  */
 public interface BizDeviceModelMapper 
 {

@@ -7,9 +7,7 @@ import com.ruoyi.common.core.domain.BaseEntity;
 
 /**
  * 工人信息对象 biz_worker
- * 
- * @author ruoyi
- * @date 2025-12-23
+ *
  */
 public class BizWorker extends BaseEntity
 {

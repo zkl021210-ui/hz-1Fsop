@@ -50,18 +50,18 @@ public class AiServiceRunner implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        log.info("🤖 [AI服务] 正在准备启动 Python 引擎...");
+        log.info("  正在准备启动 Python 引擎...");
         log.info("  - Python解释器: {}", pythonExe);
         log.info("  - 脚本路径: {}", scriptPath);
         log.info("  - 工作目录: {}", workDir);
 
         try {
             if (!new File(pythonExe).exists()) {
-                log.error("❌ [AI服务] 启动失败：Python解释器不存在，请检查配置！路径: {}", pythonExe);
+                log.error(" [AI服务] 启动失败：Python解释器不存在，请检查配置！路径: {}", pythonExe);
                 return;
             }
             if (!new File(scriptPath).exists()) {
-                log.error("❌ [AI服务] 启动失败：Python脚本不存在，请检查配置！路径: {}", scriptPath);
+                log.error(" [AI服务] 启动失败：Python脚本不存在，请检查配置！路径: {}", scriptPath);
                 return;
             }
 
@@ -75,18 +75,17 @@ public class AiServiceRunner implements CommandLineRunner {
             startLoggingThread();
 
             if (pythonProcess.isAlive()) {
-                // ✅ 兼容 Java 8 的代码
-                log.info("✅ [AI服务] 进程已创建");
+                log.info(" [AI服务] 进程已创建");
 
                 // 2. 【关键修改】启动一个独立线程，专门负责“死缠烂打”直到通知成功
                 // 这样不会阻塞 SpringBoot 的主启动流程
                 new Thread(this::notifyPythonVideoPathWithRetry).start();
             } else {
-                log.error("❌ [AI服务] 引擎启动失败，进程立即退出。");
+                log.error(" [AI服务] 引擎启动失败，进程立即退出。");
             }
 
         } catch (Exception e) {
-            log.error("❌ [AI服务] 启动异常: {}", e.getMessage(), e);
+            log.error(" [AI服务] 启动异常: {}", e.getMessage(), e);
         }
     }
 
@@ -96,7 +95,7 @@ public class AiServiceRunner implements CommandLineRunner {
      */
     private void notifyPythonVideoPathWithRetry() {
         String url = pythonApiUrl + "/config/update_save_dir";
-        log.info("📡 [AI配置] 准备通知 Python 更新视频路径: {}", videoPath);
+        log.info(" [AI配置] 准备通知 Python 更新视频路径: {}", videoPath);
 
         Map<String, String> params = new HashMap<>();
         params.put("videoPath", videoPath);
@@ -111,18 +110,18 @@ public class AiServiceRunner implements CommandLineRunner {
                 restTemplate.postForObject(url, params, String.class);
 
                 // 如果代码能走到这里，说明没有抛出异常，连接成功了
-                log.info("✅ [第{}次] 成功通知 Python 更新视频路径！", attempt);
+                log.info(" [第{}次] 成功通知 Python 更新视频路径！", attempt);
                 return; // 任务完成，退出线程
 
             } catch (Exception e) {
                 // 捕获连接拒绝异常 (ResourceAccessException)
                 if (attempt == 1) {
-                    log.info("⏳ Python 尚未就绪，开始轮询等待...");
+                    log.info(" Python 尚未就绪，开始轮询等待...");
                 }
 
                 // 只有在最后一次尝试失败时才打印 Error，中间只打印 Debug/Info 避免刷屏
                 if (attempt >= maxRetries) {
-                    log.error("❌ [最终失败] 尝试了 {} 次仍无法连接 Python。请检查 test.py 是否报错退出。", maxRetries);
+                    log.error(" [最终失败] 尝试了 {} 次仍无法连接 Python。请检查 test.py 是否报错退出。", maxRetries);
                 } else {
                     try {
                         // 等待 2 秒后重试
@@ -142,7 +141,7 @@ public class AiServiceRunner implements CommandLineRunner {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     // 给 Python 日志加个前缀，方便在控制台区分
-                    log.info("🐍 [Python]: {}", line);
+                    log.info(" [Python]: {}", line);
                 }
             } catch (Exception e) {
                 log.warn("... [AI服务] 日志流结束。");
@@ -153,7 +152,7 @@ public class AiServiceRunner implements CommandLineRunner {
     @PreDestroy
     public void stopPythonService() {
         if (this.pythonProcess != null && this.pythonProcess.isAlive()) {
-            log.info("🛑 [AI服务]正在关闭...");
+            log.info(" [AI服务]正在关闭...");
             this.pythonProcess.destroy();
             try {
                 if (!this.pythonProcess.waitFor(3, TimeUnit.SECONDS)) {

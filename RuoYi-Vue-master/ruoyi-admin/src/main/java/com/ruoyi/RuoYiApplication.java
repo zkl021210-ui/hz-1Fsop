@@ -18,6 +18,6 @@ public class RuoYiApplication
         SpringApplication.run(RuoYiApplication.class, args);
         System.out.println("系统启动成功 \n" +
 
-                "   NJUST智能开发团队出品   ");
+                "   ");
     }
 }
