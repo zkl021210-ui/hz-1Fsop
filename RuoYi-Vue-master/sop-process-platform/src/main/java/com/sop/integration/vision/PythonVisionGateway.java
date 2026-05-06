@@ -2,6 +2,7 @@ package com.sop.integration.vision;
 
 import com.sop.common.exception.BusinessException;
 import com.sop.common.exception.ErrorCode;
+import com.sop.process.service.ProcessEventTxService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -20,10 +21,13 @@ public class PythonVisionGateway implements VisionGateway {
 
     private final VisionProperties visionProperties;
     private final RestTemplate restTemplate;
+    private final ProcessEventTxService processEventTxService;
 
-    public PythonVisionGateway(VisionProperties visionProperties) {
+    public PythonVisionGateway(VisionProperties visionProperties,
+                               ProcessEventTxService processEventTxService) {
         this.visionProperties = visionProperties;
         this.restTemplate = new RestTemplate();
+        this.processEventTxService = processEventTxService;
     }
 
     @Override
@@ -80,9 +84,17 @@ public class PythonVisionGateway implements VisionGateway {
             }
             return result;
         } catch (BusinessException e) {
+            processEventTxService.recordError(body instanceof StartRecordCommand ? ((StartRecordCommand) body).getDeviceSn()
+                    : body instanceof StopRecordCommand ? ((StopRecordCommand) body).getDeviceSn()
+                    : body instanceof VisionStepConfigCommand ? ((VisionStepConfigCommand) body).getDeviceSn()
+                    : "unknown", e.getMessage());
             throw e;
         } catch (Exception e) {
             log.error("视觉服务调用异常: path={}", path, e);
+            processEventTxService.recordError(body instanceof StartRecordCommand ? ((StartRecordCommand) body).getDeviceSn()
+                    : body instanceof StopRecordCommand ? ((StopRecordCommand) body).getDeviceSn()
+                    : body instanceof VisionStepConfigCommand ? ((VisionStepConfigCommand) body).getDeviceSn()
+                    : "unknown", e.getMessage());
             throw new BusinessException(ErrorCode.VISION_SERVICE_ERROR, "视觉服务调用异常: " + e.getMessage());
         }
     }

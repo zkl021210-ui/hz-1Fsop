@@ -138,3 +138,28 @@ ALTER TABLE `assembly_step_log`
     ADD COLUMN `pass_type` VARCHAR(32)  DEFAULT NULL COMMENT '通过方式（AI_PASS / MANUAL_PASS）' AFTER `status`,
     ADD COLUMN `duration`  BIGINT       DEFAULT NULL COMMENT '步骤耗时（秒）' AFTER `pass_type`,
     ADD COLUMN `step_no`   INT          DEFAULT NULL COMMENT '步骤序号' AFTER `duration`;
+
+-- 7. 流程事件表（第四阶段）
+DROP TABLE IF EXISTS `process_event`;
+CREATE TABLE `process_event` (
+    `id`                 BIGINT        NOT NULL AUTO_INCREMENT COMMENT '事件ID',
+    `event_id`           VARCHAR(256)  DEFAULT NULL COMMENT '外部事件ID（唯一）',
+    `task_id`            BIGINT        DEFAULT NULL COMMENT '关联任务ID',
+    `device_sn`          VARCHAR(64)   DEFAULT NULL COMMENT '设备编码',
+    `step_id`            BIGINT        DEFAULT NULL COMMENT '步骤ID',
+    `step_run_id`        BIGINT        DEFAULT NULL COMMENT '步骤日志ID',
+    `event_type`         VARCHAR(64)   NOT NULL COMMENT '事件类型',
+    `status`             VARCHAR(32)   NOT NULL DEFAULT 'RECEIVED' COMMENT 'RECEIVED/PROCESSING/SUCCESS/FAILED/IGNORED',
+    `payload`            TEXT          DEFAULT NULL COMMENT '原始载荷（JSON）',
+    `result`             VARCHAR(512)  DEFAULT NULL COMMENT '处理结果简述',
+    `error_message`      VARCHAR(1024) DEFAULT NULL COMMENT '异常信息',
+    `processed_time`     DATETIME      DEFAULT NULL COMMENT '处理完成时间',
+    `duplicate_count`    INT           DEFAULT 0 COMMENT '重复回调次数',
+    `last_received_time` DATETIME      DEFAULT NULL COMMENT '最后一次收到重复回调的时间',
+    `create_time`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_event_id` (`event_id`),
+    KEY `idx_task_id` (`task_id`),
+    KEY `idx_event_type` (`event_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='流程事件表';

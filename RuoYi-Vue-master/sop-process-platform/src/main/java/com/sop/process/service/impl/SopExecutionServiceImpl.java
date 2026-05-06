@@ -10,6 +10,7 @@ import com.sop.process.mapper.*;
 import com.sop.process.service.*;
 import com.sop.process.vo.*;
 import com.sop.workflow.AssemblyStateMachine;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +41,9 @@ public class SopExecutionServiceImpl implements SopExecutionService {
     private final QualityTraceMapper qualityTraceMapper;
     private final AssemblyStateMachine stateMachine;
     private final VisionGateway visionGateway;
+    private final ProcessEventService processEventService;
+    private final ProcessEventTxService processEventTxService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public SopExecutionServiceImpl(AssemblyTaskMapper assemblyTaskMapper,
                                    AssemblyStepLogMapper assemblyStepLogMapper,
@@ -47,7 +51,9 @@ public class SopExecutionServiceImpl implements SopExecutionService {
                                    WorkerMapper workerMapper,
                                    QualityTraceMapper qualityTraceMapper,
                                    AssemblyStateMachine stateMachine,
-                                   VisionGateway visionGateway) {
+                                   VisionGateway visionGateway,
+                                   ProcessEventService processEventService,
+                                   ProcessEventTxService processEventTxService) {
         this.assemblyTaskMapper = assemblyTaskMapper;
         this.assemblyStepLogMapper = assemblyStepLogMapper;
         this.sopStepMapper = sopStepMapper;
@@ -55,6 +61,8 @@ public class SopExecutionServiceImpl implements SopExecutionService {
         this.qualityTraceMapper = qualityTraceMapper;
         this.stateMachine = stateMachine;
         this.visionGateway = visionGateway;
+        this.processEventService = processEventService;
+        this.processEventTxService = processEventTxService;
     }
 
     // ==================== 开工 ====================
@@ -225,11 +233,17 @@ public class SopExecutionServiceImpl implements SopExecutionService {
     @Override
     @Transactional
     public AiNextStepResultVO handleAiNextStep(AiNextStepCallbackCommand command) {
-        // 0. 校验回调合法性
+        String payloadJson = toJson(command);
+
+        // ═══ 阶段1：校验 + 定位 ═══
         if (!"AUTO_NEXT".equals(command.getAction())) {
+            rejectCallback(null, command.getDeviceSn(), null, null, null,
+                    "回调 action 无效: " + command.getAction(), payloadJson);
             throw new BusinessException(ErrorCode.BAD_REQUEST, "回调 action 无效: " + command.getAction());
         }
         if (!"0".equals(command.getStatus())) {
+            rejectCallback(null, command.getDeviceSn(), null, null, null,
+                    "回调 status 非成功: " + command.getStatus(), payloadJson);
             throw new BusinessException(ErrorCode.BAD_REQUEST, "回调 status 非成功: " + command.getStatus());
         }
 
@@ -240,7 +254,16 @@ public class SopExecutionServiceImpl implements SopExecutionService {
         if (command.getTaskId() != null) {
             task = assemblyTaskMapper.selectById(command.getTaskId());
             if (task == null || task.getDeleted() == 1) {
+                rejectCallback(null, deviceSn, command.getTaskId(), null, null,
+                        "装配任务不存在", payloadJson);
                 throw new BusinessException(ErrorCode.NOT_FOUND, "装配任务不存在");
+            }
+            // 上下文校验: taskId 提供的 deviceSn 必须匹配
+            if (!deviceSn.equals(task.getDeviceSn())) {
+                rejectCallback(null, deviceSn, task.getTaskId(), null, null,
+                        "回调 taskId 与 deviceSn 不匹配", payloadJson);
+                throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        "回调 taskId=" + command.getTaskId() + " 与 deviceSn=" + deviceSn + " 不匹配");
             }
         } else {
             task = assemblyTaskMapper.selectOne(
@@ -249,12 +272,22 @@ public class SopExecutionServiceImpl implements SopExecutionService {
                             .eq(AssemblyTask::getStatus, TASK_RUNNING)
                             .eq(AssemblyTask::getDeleted, 0));
             if (task == null) {
+                rejectCallback(null, deviceSn, null, null, null,
+                        "设备 " + deviceSn + " 无进行中的装配任务", payloadJson);
                 throw new BusinessException(ErrorCode.TASK_NOT_RUNNING,
                         "设备 " + deviceSn + " 无进行中的装配任务");
             }
         }
 
-        // 2. 定位当前步骤日志
+        // 2. 上下文校验: task.status 必须是 RUNNING
+        if (!TASK_RUNNING.equals(task.getStatus())) {
+            rejectCallback(null, deviceSn, task.getTaskId(), null, null,
+                    "任务状态不是RUNNING: " + task.getStatus(), payloadJson);
+            throw new BusinessException(ErrorCode.TASK_NOT_RUNNING,
+                    "任务状态不是进行中，无法处理过站回调");
+        }
+
+        // 3. 定位步骤日志
         AssemblyStepLog stepLog;
         if (command.getStepRunId() != null) {
             stepLog = assemblyStepLogMapper.selectById(command.getStepRunId());
@@ -266,66 +299,127 @@ public class SopExecutionServiceImpl implements SopExecutionService {
                             .eq(AssemblyStepLog::getDeleted, 0));
         }
         if (stepLog == null) {
+            rejectCallback(null, deviceSn, task.getTaskId(), command.getStepId(), command.getStepRunId(),
+                    "无进行中的步骤日志", payloadJson);
             throw new BusinessException(ErrorCode.STEP_STATUS_DENIED, "无进行中的步骤日志");
         }
 
-        // 3. 校验状态并完成当前步骤
-        stateMachine.checkAiPassAllowed(stepLog.getStatus());
-        stateMachine.checkStepTransition(STEP_RUNNING, EVENT_AI_PASS);
-
-        LocalDateTime now = LocalDateTime.now();
-        stepLog.setStatus(STEP_AI_PASSED);
-        stepLog.setPassType("AI_PASS");
-        stepLog.setEndTime(now);
-        if (stepLog.getStartTime() != null) {
-            stepLog.setDuration(Duration.between(stepLog.getStartTime(), now).getSeconds());
+        // 4. 上下文校验
+        if (!STEP_RUNNING.equals(stepLog.getStatus())) {
+            rejectCallback(null, deviceSn, task.getTaskId(), stepLog.getStepId(), stepLog.getId(),
+                    "步骤日志状态不是RUNNING: " + stepLog.getStatus(), payloadJson);
+            throw new BusinessException(ErrorCode.STEP_STATUS_DENIED,
+                    "当前步骤状态不允许过站: " + stepLog.getStatus());
         }
-        assemblyStepLogMapper.updateById(stepLog);
+        if (!stepLog.getTaskId().equals(task.getTaskId())) {
+            rejectCallback(null, deviceSn, task.getTaskId(), stepLog.getStepId(), stepLog.getId(),
+                    "stepLog.taskId 与 task.taskId 不匹配", payloadJson);
+            throw new BusinessException(ErrorCode.STEP_NOT_MATCH, "步骤日志不属于当前任务");
+        }
+        if (command.getStepId() != null && !command.getStepId().equals(stepLog.getStepId())) {
+            rejectCallback(null, deviceSn, task.getTaskId(), command.getStepId(), stepLog.getId(),
+                    "回调 stepId 与当前执行步骤不匹配", payloadJson);
+            throw new BusinessException(ErrorCode.STEP_NOT_MATCH,
+                    "回调 stepId=" + command.getStepId() + " 与执行中 stepId=" + stepLog.getStepId() + " 不匹配");
+        }
 
-        // 4. 停止录像
-        StopRecordCommand stopCommand = StopRecordCommand.builder()
-                .deviceSn(task.getDeviceSn())
-                .taskId(task.getTaskId())
-                .stepRunId(stepLog.getId())
-                .build();
-        visionGateway.stopRecord(stopCommand);
+        // ═══ 阶段2：幂等检查 ═══
+        String effectiveEventId = generateEffectiveEventId(command, task, stepLog);
 
-        // 5. 判断下一步
-        SopStep nextStep = findNextStep(task.getModelCode(), stepLog.getStepNo());
-        AiNextStepResultVO vo = new AiNextStepResultVO();
-        vo.setTaskId(task.getTaskId());
-        vo.setDeviceSn(task.getDeviceSn());
-        vo.setCompletedStepLogId(stepLog.getId());
-
-        if (nextStep != null) {
-            // 更新任务到下一步
-            task.setCurrentStepIndex(nextStep.getStepOrder());
-            assemblyTaskMapper.updateById(task);
-
-            // 自动启动下一步
-            startNextStep(task, nextStep);
-
-            vo.setTaskStatus(task.getStatus());
-            vo.setCurrentStepNo(nextStep.getStepOrder());
-            vo.setHasNextStep(true);
-            vo.setNextStepId(nextStep.getStepId());
-            vo.setNextStepName(nextStep.getStepTitle());
-            log.info("AI过站自动进入下一步: taskId={}, currentStep={}, nextStepId={}",
-                    task.getTaskId(), nextStep.getStepOrder(), nextStep.getStepId());
+        ProcessEvent existing = processEventService.getByEventId(effectiveEventId);
+        if (existing != null) {
+            if ("SUCCESS".equals(existing.getStatus())) {
+                processEventTxService.updateDuplicate(effectiveEventId);
+                log.info("回调幂等返回(SUCCESS): eventId={}, taskId={}", effectiveEventId, task.getTaskId());
+                return buildIdempotentResult(task);
+            }
+            if ("FAILED".equals(existing.getStatus())) {
+                processEventTxService.markProcessing(effectiveEventId);
+                processEventTxService.updateDuplicate(effectiveEventId);
+                log.info("FAILED事件重试: eventId={}, taskId={}", effectiveEventId, task.getTaskId());
+            } else {
+                processEventTxService.updateDuplicate(effectiveEventId);
+                log.info("回调幂等返回(PROCESSING): eventId={}, taskId={}", effectiveEventId, task.getTaskId());
+                return buildIdempotentResult(task);
+            }
         } else {
-            // 无下一步，完成任务
-            stateMachine.checkTaskTransition(TASK_RUNNING, EVENT_FINISH_TASK);
-            task.setStatus(TASK_COMPLETED);
-            task.setFinishTime(now);
-            assemblyTaskMapper.updateById(task);
-
-            vo.setTaskStatus(TASK_COMPLETED);
-            vo.setCurrentStepNo(task.getCurrentStepIndex());
-            vo.setHasNextStep(false);
-            log.info("AI过站全部步骤完成: taskId={}", task.getTaskId());
+            processEventTxService.tryCreateProcessing(effectiveEventId, task.getTaskId(),
+                    deviceSn, stepLog.getStepId(), stepLog.getId(), "AI_PASS_RECEIVED", payloadJson);
         }
 
-        return vo;
+        LocalDateTime now = null;
+        try {
+            // ═══ 阶段3：执行过站逻辑 ═══
+            stateMachine.checkAiPassAllowed(stepLog.getStatus());
+            stateMachine.checkStepTransition(STEP_RUNNING, EVENT_AI_PASS);
+
+            now = LocalDateTime.now();
+            stepLog.setStatus(STEP_AI_PASSED);
+            stepLog.setPassType("AI_PASS");
+            stepLog.setEndTime(now);
+            if (stepLog.getStartTime() != null) {
+                stepLog.setDuration(Duration.between(stepLog.getStartTime(), now).getSeconds());
+            }
+            assemblyStepLogMapper.updateById(stepLog);
+
+            // 记录 STEP_FINISHED 事件（派生 eventId）
+            String stepFinishedEventId = effectiveEventId + ":STEP_FINISHED:" + stepLog.getId();
+            processEventTxService.recordEvent(stepFinishedEventId, task.getTaskId(), deviceSn,
+                    stepLog.getStepId(), stepLog.getId(), "STEP_FINISHED", "SUCCESS",
+                    "步骤 AI_PASSED: stepOrder=" + stepLog.getStepNo());
+
+            // 停止录像
+            StopRecordCommand stopCommand = StopRecordCommand.builder()
+                    .deviceSn(task.getDeviceSn())
+                    .taskId(task.getTaskId())
+                    .stepRunId(stepLog.getId())
+                    .build();
+            visionGateway.stopRecord(stopCommand);
+
+            // 判断下一步
+            SopStep nextStep = findNextStep(task.getModelCode(), stepLog.getStepNo());
+            AiNextStepResultVO vo = new AiNextStepResultVO();
+            vo.setTaskId(task.getTaskId());
+            vo.setDeviceSn(task.getDeviceSn());
+            vo.setCompletedStepLogId(stepLog.getId());
+
+            if (nextStep != null) {
+                task.setCurrentStepIndex(nextStep.getStepOrder());
+                assemblyTaskMapper.updateById(task);
+                startNextStep(task, nextStep);
+
+                vo.setTaskStatus(task.getStatus());
+                vo.setCurrentStepNo(nextStep.getStepOrder());
+                vo.setHasNextStep(true);
+                vo.setNextStepId(nextStep.getStepId());
+                vo.setNextStepName(nextStep.getStepTitle());
+                log.info("AI过站自动进入下一步: taskId={}, currentStep={}, nextStepId={}",
+                        task.getTaskId(), nextStep.getStepOrder(), nextStep.getStepId());
+            } else {
+                stateMachine.checkTaskTransition(TASK_RUNNING, EVENT_FINISH_TASK);
+                task.setStatus(TASK_COMPLETED);
+                task.setFinishTime(now);
+                assemblyTaskMapper.updateById(task);
+
+                // 记录 TASK_COMPLETED 事件（派生 eventId）
+                String taskCompletedEventId = effectiveEventId + ":TASK_COMPLETED:" + task.getTaskId();
+                processEventTxService.recordEvent(taskCompletedEventId, task.getTaskId(), deviceSn,
+                        null, null, "TASK_COMPLETED", "SUCCESS",
+                        "全部步骤完成");
+
+                vo.setTaskStatus(TASK_COMPLETED);
+                vo.setCurrentStepNo(task.getCurrentStepIndex());
+                vo.setHasNextStep(false);
+                log.info("AI过站全部步骤完成: taskId={}", task.getTaskId());
+            }
+
+            // ═══ 阶段4：markSuccess ═══
+            processEventTxService.markSuccess(effectiveEventId, vo.getTaskStatus());
+            return vo;
+        } catch (BusinessException e) {
+            processEventTxService.markFailed(effectiveEventId, e.getMessage());
+            throw e;
+        }
     }
 
     // ==================== 手动完成任务 ====================
@@ -388,6 +482,56 @@ public class SopExecutionServiceImpl implements SopExecutionService {
     }
 
     // ==================== 私有方法 ====================
+
+    /**
+     * 生成有效 eventId（旧格式无 eventId 时自动生成）
+     */
+    private String generateEffectiveEventId(AiNextStepCallbackCommand command, AssemblyTask task, AssemblyStepLog stepLog) {
+        if (command.getEventId() != null && !command.getEventId().isEmpty()) {
+            return command.getEventId();
+        }
+        return "LEGACY_AI_PASS:" + task.getDeviceSn() + ":" + task.getTaskId() + ":"
+                + stepLog.getId() + ":AUTO_NEXT";
+    }
+
+    /**
+     * 幂等返回时构造 AiNextStepResultVO（不推进步骤）
+     */
+    private AiNextStepResultVO buildIdempotentResult(AssemblyTask task) {
+        AiNextStepResultVO vo = new AiNextStepResultVO();
+        vo.setTaskId(task.getTaskId());
+        vo.setDeviceSn(task.getDeviceSn());
+        vo.setTaskStatus(task.getStatus());
+        vo.setCurrentStepNo(task.getCurrentStepIndex());
+        SopStep next = findNextStep(task.getModelCode(), task.getCurrentStepIndex());
+        vo.setHasNextStep(next != null);
+        if (next != null) {
+            vo.setNextStepId(next.getStepId());
+            vo.setNextStepName(next.getStepTitle());
+        }
+        return vo;
+    }
+
+    /**
+     * 记录 CALLBACK_REJECTED 事件并抛异常
+     */
+    private void rejectCallback(String eventId, String deviceSn, Long taskId,
+                                Long stepId, Long stepRunId, String reason, String payload) {
+        String rejectEventId = "CALLBACK_REJECTED:" + deviceSn + ":"
+                + (taskId != null ? taskId : "null") + ":" + System.currentTimeMillis();
+        processEventTxService.recordRejected(rejectEventId, deviceSn, taskId, stepId, stepRunId, reason);
+    }
+
+    /**
+     * 对象转 JSON（用于事件 payload 落库）
+     */
+    private String toJson(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            return String.valueOf(obj);
+        }
+    }
 
     /**
      * 自动启动下一步骤
