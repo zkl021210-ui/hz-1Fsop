@@ -1,7 +1,9 @@
 package com.sop.integration.vision;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * 停止录像命令
@@ -10,6 +12,8 @@ import lombok.Data;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class StopRecordCommand {
 
     /** 设备编码 */

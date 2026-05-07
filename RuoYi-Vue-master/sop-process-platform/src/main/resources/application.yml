@@ -67,7 +67,7 @@ mybatis-plus:
 # 视觉服务配置
 vision:
   service:
-    enabled: false            # 本地纯Java测试设为false，联调Python时设为true
+    enabled: true            # 本地纯Java测试设为false，联调Python时设为true
     base-url: http://localhost:5000
     connect-timeout: 5000
     read-timeout: 30000
@@ -81,8 +81,9 @@ sop:
     vision-retry-queue: sop.vision.retry.queue
     dead-letter-exchange: sop.dlx.exchange
     dead-letter-queue: sop.dead.letter.queue
+    max-retry: 3
   timeout:
-    check-interval: 60000       # 超时检测间隔（毫秒），默认60秒
+    check-interval: 6000000       # 超时检测间隔（毫秒），默认60秒
     step-multiplier: 2.0        # 步骤超时倍数（standardDuration * multiplier），默认2倍
 
 # SpringDoc / Knife4j 配置
