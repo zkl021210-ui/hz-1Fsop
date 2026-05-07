@@ -139,7 +139,32 @@ ALTER TABLE `assembly_step_log`
     ADD COLUMN `duration`  BIGINT       DEFAULT NULL COMMENT '步骤耗时（秒）' AFTER `pass_type`,
     ADD COLUMN `step_no`   INT          DEFAULT NULL COMMENT '步骤序号' AFTER `duration`;
 
--- 7. 流程事件表（第四阶段）
+ALTER TABLE `assembly_task`
+    ADD COLUMN `version` INT DEFAULT 0 COMMENT '乐观锁版本号' AFTER `finish_time`;
+
+ALTER TABLE `process_event`
+    ADD COLUMN `retry_count`    INT           DEFAULT 0 COMMENT 'MQ重试次数' AFTER `last_received_time`,
+    ADD COLUMN `max_retry`      INT           DEFAULT 3 COMMENT '最大重试次数' AFTER `retry_count`,
+    ADD COLUMN `next_retry_time` DATETIME     DEFAULT NULL COMMENT '下次重试时间' AFTER `max_retry`;
+
+-- 8. MQ 消息日志表（第六阶段）
+DROP TABLE IF EXISTS `mq_message_log`;
+CREATE TABLE `mq_message_log` (
+    `id`              BIGINT        NOT NULL AUTO_INCREMENT COMMENT '自增ID',
+    `message_id`      VARCHAR(128)  NOT NULL COMMENT '消息唯一ID',
+    `event_id`        VARCHAR(256)  DEFAULT NULL COMMENT '关联流程事件ID',
+    `event_type`      VARCHAR(64)   DEFAULT NULL COMMENT '事件类型',
+    `consumer_name`   VARCHAR(128)  NOT NULL COMMENT '消费者名称',
+    `status`          VARCHAR(32)   NOT NULL DEFAULT 'PROCESSING' COMMENT 'PROCESSING/SUCCESS/FAILED',
+    `retry_count`     INT           DEFAULT 0 COMMENT '重试次数',
+    `error_message`   TEXT          DEFAULT NULL COMMENT '错误信息',
+    `create_time`     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_message_consumer` (`message_id`, `consumer_name`),
+    KEY `idx_event_id` (`event_id`),
+    KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MQ消息消费日志';
 DROP TABLE IF EXISTS `process_event`;
 CREATE TABLE `process_event` (
     `id`                 BIGINT        NOT NULL AUTO_INCREMENT COMMENT '事件ID',

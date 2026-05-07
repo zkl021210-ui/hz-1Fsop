@@ -29,4 +29,30 @@ public interface ProcessEventTxService {
                      Long stepRunId, String eventType, String status, String result);
 
     void recordError(String deviceSn, String errorMsg);
+
+    /**
+     * 记录视觉服务错误（含操作类型和请求载荷，用于后续重试）
+     */
+    void recordVisionError(String deviceSn, String errorMsg, String errorType, String payload);
+
+    /**
+     * 记录步骤超时事件
+     */
+    void recordStepTimeout(String eventId, Long taskId, String deviceSn, Long stepId,
+                           Long stepRunId, String payload);
+
+    /**
+     * 记录任务开工事件
+     */
+    void recordTaskStarted(Long taskId, String deviceSn, String modelCode);
+
+    /**
+     * 记录步骤启动事件
+     */
+    void recordStepStarted(Long taskId, String deviceSn, Long stepId, Long stepRunId, Integer stepNo);
+
+    /**
+     * 记录质量追溯创建事件
+     */
+    void recordQualityTraceCreated(Long taskId, String deviceSn, String finalResult);
 }

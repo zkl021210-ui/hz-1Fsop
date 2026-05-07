@@ -60,6 +60,15 @@ public class ProcessEvent {
     /** 最后一次收到重复回调的时间 */
     private LocalDateTime lastReceivedTime;
 
+    /** MQ 重试次数 */
+    private Integer retryCount;
+
+    /** 最大重试次数 */
+    private Integer maxRetry;
+
+    /** 下次重试时间 */
+    private LocalDateTime nextRetryTime;
+
     /** 创建时间 */
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

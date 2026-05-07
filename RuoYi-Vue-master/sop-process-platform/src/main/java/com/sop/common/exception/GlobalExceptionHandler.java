@@ -1,5 +1,6 @@
 package com.sop.common.exception;
 
+import com.baomidou.mybatisplus.core.exceptions.MybatisPlusException;
 import com.sop.common.result.ApiResult;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -148,6 +149,21 @@ public class GlobalExceptionHandler {
     public ApiResult<Void> handleNoResourceFound(NoResourceFoundException e) {
         log.warn("资源未找到: {}", e.getMessage());
         return ApiResult.error(ErrorCode.NOT_FOUND, "请求的资源不存在");
+    }
+
+    // ==================== 数据层异常 ====================
+
+    /**
+     * 处理 MyBatis-Plus 乐观锁冲突
+     */
+    @ExceptionHandler(MybatisPlusException.class)
+    public ApiResult<Void> handleMybatisPlusException(MybatisPlusException e) {
+        if (e.getMessage() != null && e.getMessage().contains("version")) {
+            log.warn("乐观锁冲突: {}", e.getMessage());
+            return ApiResult.error(ErrorCode.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        log.error("MyBatis-Plus 异常: ", e);
+        return ApiResult.error(ErrorCode.DATABASE_ERROR, "数据库操作异常");
     }
 
     // ==================== 系统异常 ====================

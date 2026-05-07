@@ -28,4 +28,12 @@ public interface VisionGateway {
      * 健康检查
      */
     VisionHealthStatus healthCheck();
+
+    /**
+     * 重试最近一次视觉服务失败操作
+     *
+     * @param deviceSn 设备编码
+     * @return 重试结果（若无失败事件返回 ok；若缺少上下文返回 fail 并说明原因）
+     */
+    VisionResult retryLastFailed(String deviceSn);
 }

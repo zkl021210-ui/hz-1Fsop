@@ -76,6 +76,12 @@ public enum ErrorCode {
     /** 回调被拒绝 */
     CALLBACK_REJECTED(20013, "回调校验未通过"),
 
+    /** 乐观锁冲突，并发更新失败 */
+    OPTIMISTIC_LOCK_CONFLICT(20014, "数据已被其他操作更新，请刷新后重试"),
+
+    /** 步骤执行超时 */
+    STEP_TIMEOUT(20015, "步骤执行超时"),
+
     // ==================== 外部服务 (3xxxx) ====================
 
     /** 视觉服务调用失败 */
@@ -97,6 +103,9 @@ public enum ErrorCode {
 
     /** 文件操作失败 */
     FILE_ERROR(40003, "文件操作失败"),
+
+    /** MQ 消息发布失败 */
+    MQ_PUBLISH_FAILED(40004, "消息发布失败"),
 
     ;
 

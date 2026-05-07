@@ -3,6 +3,7 @@ package com.sop;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * SOP 流程平台启动类
@@ -13,6 +14,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  */
 @SpringBootApplication
 @MapperScan("com.sop.**.mapper")
+@EnableScheduling
 public class SopApplication {
 
     public static void main(String[] args) {

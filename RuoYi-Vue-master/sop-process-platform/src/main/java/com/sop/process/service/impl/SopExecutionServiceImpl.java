@@ -3,6 +3,7 @@ package com.sop.process.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sop.common.exception.BusinessException;
 import com.sop.common.exception.ErrorCode;
+import com.sop.infrastructure.lock.DeviceLock;
 import com.sop.integration.vision.*;
 import com.sop.process.command.*;
 import com.sop.process.domain.*;
@@ -43,6 +44,7 @@ public class SopExecutionServiceImpl implements SopExecutionService {
     private final VisionGateway visionGateway;
     private final ProcessEventService processEventService;
     private final ProcessEventTxService processEventTxService;
+    private final DeviceLock deviceLock;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public SopExecutionServiceImpl(AssemblyTaskMapper assemblyTaskMapper,
@@ -53,7 +55,8 @@ public class SopExecutionServiceImpl implements SopExecutionService {
                                    AssemblyStateMachine stateMachine,
                                    VisionGateway visionGateway,
                                    ProcessEventService processEventService,
-                                   ProcessEventTxService processEventTxService) {
+                                   ProcessEventTxService processEventTxService,
+                                   DeviceLock deviceLock) {
         this.assemblyTaskMapper = assemblyTaskMapper;
         this.assemblyStepLogMapper = assemblyStepLogMapper;
         this.sopStepMapper = sopStepMapper;
@@ -63,6 +66,7 @@ public class SopExecutionServiceImpl implements SopExecutionService {
         this.visionGateway = visionGateway;
         this.processEventService = processEventService;
         this.processEventTxService = processEventTxService;
+        this.deviceLock = deviceLock;
     }
 
     // ==================== 开工 ====================
@@ -71,6 +75,18 @@ public class SopExecutionServiceImpl implements SopExecutionService {
     @Transactional
     public StartTaskResultVO startTask(StartTaskCommand command) {
         String deviceSn = command.getDeviceSn();
+        if (!deviceLock.tryLock(deviceSn)) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE,
+                    "设备 " + deviceSn + " 正在处理中，请稍后重试");
+        }
+        try {
+            return doStartTask(command, deviceSn);
+        } finally {
+            deviceLock.unlock(deviceSn);
+        }
+    }
+
+    private StartTaskResultVO doStartTask(StartTaskCommand command, String deviceSn) {
         String modelCode = command.getModelCode();
         Long workerId = command.getWorkerId();
 
@@ -114,6 +130,8 @@ public class SopExecutionServiceImpl implements SopExecutionService {
 
         log.info("开工成功: taskId={}, deviceSn={}, modelCode={}", task.getTaskId(), deviceSn, modelCode);
 
+        processEventTxService.recordTaskStarted(task.getTaskId(), deviceSn, modelCode);
+
         StartTaskResultVO vo = new StartTaskResultVO();
         vo.setTaskId(task.getTaskId());
         vo.setDeviceSn(deviceSn);
@@ -138,6 +156,19 @@ public class SopExecutionServiceImpl implements SopExecutionService {
             throw new BusinessException(ErrorCode.TASK_NOT_RUNNING, "任务状态不是进行中，无法启动步骤");
         }
 
+        String deviceSn = task.getDeviceSn();
+        if (!deviceLock.tryLock(deviceSn)) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE,
+                    "设备 " + deviceSn + " 正在处理中，请稍后重试");
+        }
+        try {
+            return doStartStep(task, stepId);
+        } finally {
+            deviceLock.unlock(deviceSn);
+        }
+    }
+
+    private StartStepResultVO doStartStep(AssemblyTask task, Long stepId) {
         // 2. 查询步骤
         SopStep step = sopStepMapper.selectById(stepId);
         if (step == null || step.getDeleted() == 1) {
@@ -154,13 +185,13 @@ public class SopExecutionServiceImpl implements SopExecutionService {
         // 3. 查找或创建步骤日志
         AssemblyStepLog stepLog = assemblyStepLogMapper.selectOne(
                 new LambdaQueryWrapper<AssemblyStepLog>()
-                        .eq(AssemblyStepLog::getTaskId, taskId)
+                        .eq(AssemblyStepLog::getTaskId, task.getTaskId())
                         .eq(AssemblyStepLog::getStepId, stepId)
                         .eq(AssemblyStepLog::getDeleted, 0));
 
         if (stepLog == null) {
             stepLog = new AssemblyStepLog();
-            stepLog.setTaskId(taskId);
+            stepLog.setTaskId(task.getTaskId());
             stepLog.setStepId(stepId);
             stepLog.setStepNo(step.getStepOrder());
             stepLog.setSerialNumber(task.getDeviceSn());
@@ -187,7 +218,7 @@ public class SopExecutionServiceImpl implements SopExecutionService {
 
         // 5. 下发配置到视觉服务并启动录像
         SopStep nextStep = findNextStep(task.getModelCode(), step.getStepOrder());
-        List<String> historyTargets = findHistoryPassedTargets(taskId);
+        List<String> historyTargets = findHistoryPassedTargets(task.getTaskId());
 
         VisionStepConfigCommand configCommand = VisionStepConfigCommand.builder()
                 .deviceSn(task.getDeviceSn())
@@ -206,15 +237,17 @@ public class SopExecutionServiceImpl implements SopExecutionService {
         StartRecordCommand recordCommand = StartRecordCommand.builder()
                 .deviceSn(task.getDeviceSn())
                 .stepId(stepId)
-                .taskId(taskId)
+                .taskId(task.getTaskId())
                 .stepRunId(stepLog.getId())
                 .build();
        VisionResult recordResult = visionGateway.startRecord(recordCommand);
 
-        log.info("启动步骤成功: taskId={}, stepId={}, stepLogId={}", taskId, stepId, stepLog.getId());
+        log.info("启动步骤成功: taskId={}, stepId={}, stepLogId={}", task.getTaskId(), stepId, stepLog.getId());
+
+        processEventTxService.recordStepStarted(task.getTaskId(), task.getDeviceSn(), stepId, stepLog.getId(), step.getStepOrder());
 
         StartStepResultVO vo = new StartStepResultVO();
-        vo.setTaskId(taskId);
+        vo.setTaskId(task.getTaskId());
         vo.setStepLogId(stepLog.getId());
         vo.setStepId(stepId);
         vo.setStepNo(step.getStepOrder());
@@ -233,23 +266,133 @@ public class SopExecutionServiceImpl implements SopExecutionService {
     @Override
     @Transactional
     public AiNextStepResultVO handleAiNextStep(AiNextStepCallbackCommand command) {
-        String payloadJson = toJson(command);
-
-        // ═══ 阶段1：校验 + 定位 ═══
+        // ═══ 阶段1a：基础校验（锁前，无 DB 查询） ═══
         if (!"AUTO_NEXT".equals(command.getAction())) {
+            String payloadJson = toJson(command);
             rejectCallback(null, command.getDeviceSn(), null, null, null,
                     "回调 action 无效: " + command.getAction(), payloadJson);
             throw new BusinessException(ErrorCode.BAD_REQUEST, "回调 action 无效: " + command.getAction());
         }
         if (!"0".equals(command.getStatus())) {
+            String payloadJson = toJson(command);
             rejectCallback(null, command.getDeviceSn(), null, null, null,
                     "回调 status 非成功: " + command.getStatus(), payloadJson);
             throw new BusinessException(ErrorCode.BAD_REQUEST, "回调 status 非成功: " + command.getStatus());
         }
 
         String deviceSn = command.getDeviceSn();
+        if (!deviceLock.tryLock(deviceSn)) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE,
+                    "设备 " + deviceSn + " 正在处理中，请稍后重试");
+        }
+        try {
+            return doHandleAiNextStep(command);
+        } finally {
+            deviceLock.unlock(deviceSn);
+        }
+    }
 
-        // 1. 定位任务
+    private AiNextStepResultVO doHandleAiNextStep(AiNextStepCallbackCommand command) {
+        String payloadJson = toJson(command);
+        String deviceSn = command.getDeviceSn();
+
+        // ═══ 阶段1：新格式 eventId → 优先幂等检查（不依赖 RUNNING stepLog） ═══
+        if (command.getEventId() != null && !command.getEventId().isEmpty()) {
+            String eventId = command.getEventId();
+            ProcessEvent existing = processEventService.getByEventId(eventId);
+
+            if (existing != null) {
+                if ("SUCCESS".equals(existing.getStatus())) {
+                    processEventTxService.updateDuplicate(eventId);
+                    log.info("回调幂等返回(SUCCESS): eventId={}", eventId);
+                    return buildIdempotentResult(command.getTaskId(), deviceSn);
+                }
+                if ("PROCESSING".equals(existing.getStatus())) {
+                    processEventTxService.updateDuplicate(eventId);
+                    log.info("回调幂等返回(PROCESSING): eventId={}", eventId);
+                    return buildIdempotentResult(command.getTaskId(), deviceSn);
+                }
+                if ("FAILED".equals(existing.getStatus())) {
+                    processEventTxService.markProcessing(eventId);
+                    processEventTxService.updateDuplicate(eventId);
+                    log.info("FAILED事件重试: eventId={}", eventId);
+                }
+                // RECEIVED / IGNORED → continue to strict execution
+            }
+
+            // 新事件或 FAILED 重试 → 进入严格校验 + 执行
+            return executeAiNextStep(command, deviceSn, eventId, payloadJson);
+        }
+
+        // ═══ 阶段1b：旧格式无 eventId → 先定位 RUNNING stepLog 再生成 LEGACY eventId ═══
+        return executeAiNextStepLegacy(command, deviceSn, payloadJson);
+    }
+
+    /**
+     * 新格式回调：有 eventId，先做幂等拦截后再进入严格上下文校验
+     */
+    private AiNextStepResultVO executeAiNextStep(AiNextStepCallbackCommand command,
+                                                  String deviceSn, String eventId, String payloadJson) {
+        // 严格上下文校验：定位 RUNNING 任务
+        AssemblyTask task = locateRunningTask(command, deviceSn, payloadJson);
+
+        // 严格上下文校验：定位 RUNNING 步骤日志
+        AssemblyStepLog stepLog = locateRunningStepLog(command, task, payloadJson);
+
+        // tryCreateProcessing（幂等窗口保护）
+        ProcessEvent existing = processEventService.getByEventId(eventId);
+        if (existing == null) {
+            processEventTxService.tryCreateProcessing(eventId, task.getTaskId(),
+                    deviceSn, stepLog.getStepId(), stepLog.getId(), "AI_PASS_RECEIVED", payloadJson);
+        }
+
+        return executeStepTransition(task, stepLog, eventId, deviceSn);
+    }
+
+    /**
+     * 旧格式回调：无 eventId，先定位 RUNNING stepLog 生成 LEGACY eventId 后做幂等
+     */
+    private AiNextStepResultVO executeAiNextStepLegacy(AiNextStepCallbackCommand command,
+                                                        String deviceSn, String payloadJson) {
+        // 严格上下文校验：定位 RUNNING 任务
+        AssemblyTask task = locateRunningTask(command, deviceSn, payloadJson);
+
+        // 严格上下文校验：定位 RUNNING 步骤日志
+        AssemblyStepLog stepLog = locateRunningStepLog(command, task, payloadJson);
+
+        // 生成 LEGACY eventId
+        String effectiveEventId = "LEGACY_AI_PASS:" + task.getDeviceSn() + ":" + task.getTaskId() + ":"
+                + stepLog.getId() + ":AUTO_NEXT";
+
+        ProcessEvent existing = processEventService.getByEventId(effectiveEventId);
+        if (existing != null) {
+            if ("SUCCESS".equals(existing.getStatus())) {
+                processEventTxService.updateDuplicate(effectiveEventId);
+                log.info("回调幂等返回(SUCCESS,legacy): eventId={}", effectiveEventId);
+                return buildIdempotentResult(task);
+            }
+            if ("PROCESSING".equals(existing.getStatus())) {
+                processEventTxService.updateDuplicate(effectiveEventId);
+                log.info("回调幂等返回(PROCESSING,legacy): eventId={}", effectiveEventId);
+                return buildIdempotentResult(task);
+            }
+            if ("FAILED".equals(existing.getStatus())) {
+                processEventTxService.markProcessing(effectiveEventId);
+                processEventTxService.updateDuplicate(effectiveEventId);
+                log.info("FAILED事件重试(legacy): eventId={}", effectiveEventId);
+            }
+        } else {
+            processEventTxService.tryCreateProcessing(effectiveEventId, task.getTaskId(),
+                    deviceSn, stepLog.getStepId(), stepLog.getId(), "AI_PASS_RECEIVED", payloadJson);
+        }
+
+        return executeStepTransition(task, stepLog, effectiveEventId, deviceSn);
+    }
+
+    /**
+     * 定位 RUNNING 状态的任务（严格校验）
+     */
+    private AssemblyTask locateRunningTask(AiNextStepCallbackCommand command, String deviceSn, String payloadJson) {
         AssemblyTask task;
         if (command.getTaskId() != null) {
             task = assemblyTaskMapper.selectById(command.getTaskId());
@@ -258,7 +401,6 @@ public class SopExecutionServiceImpl implements SopExecutionService {
                         "装配任务不存在", payloadJson);
                 throw new BusinessException(ErrorCode.NOT_FOUND, "装配任务不存在");
             }
-            // 上下文校验: taskId 提供的 deviceSn 必须匹配
             if (!deviceSn.equals(task.getDeviceSn())) {
                 rejectCallback(null, deviceSn, task.getTaskId(), null, null,
                         "回调 taskId 与 deviceSn 不匹配", payloadJson);
@@ -279,15 +421,21 @@ public class SopExecutionServiceImpl implements SopExecutionService {
             }
         }
 
-        // 2. 上下文校验: task.status 必须是 RUNNING
         if (!TASK_RUNNING.equals(task.getStatus())) {
             rejectCallback(null, deviceSn, task.getTaskId(), null, null,
                     "任务状态不是RUNNING: " + task.getStatus(), payloadJson);
             throw new BusinessException(ErrorCode.TASK_NOT_RUNNING,
                     "任务状态不是进行中，无法处理过站回调");
         }
+        return task;
+    }
 
-        // 3. 定位步骤日志
+    /**
+     * 定位 RUNNING 状态的步骤日志（严格校验）
+     */
+    private AssemblyStepLog locateRunningStepLog(AiNextStepCallbackCommand command,
+                                                  AssemblyTask task, String payloadJson) {
+        String deviceSn = task.getDeviceSn();
         AssemblyStepLog stepLog;
         if (command.getStepRunId() != null) {
             stepLog = assemblyStepLogMapper.selectById(command.getStepRunId());
@@ -304,7 +452,6 @@ public class SopExecutionServiceImpl implements SopExecutionService {
             throw new BusinessException(ErrorCode.STEP_STATUS_DENIED, "无进行中的步骤日志");
         }
 
-        // 4. 上下文校验
         if (!STEP_RUNNING.equals(stepLog.getStatus())) {
             rejectCallback(null, deviceSn, task.getTaskId(), stepLog.getStepId(), stepLog.getId(),
                     "步骤日志状态不是RUNNING: " + stepLog.getStatus(), payloadJson);
@@ -322,34 +469,16 @@ public class SopExecutionServiceImpl implements SopExecutionService {
             throw new BusinessException(ErrorCode.STEP_NOT_MATCH,
                     "回调 stepId=" + command.getStepId() + " 与执行中 stepId=" + stepLog.getStepId() + " 不匹配");
         }
+        return stepLog;
+    }
 
-        // ═══ 阶段2：幂等检查 ═══
-        String effectiveEventId = generateEffectiveEventId(command, task, stepLog);
-
-        ProcessEvent existing = processEventService.getByEventId(effectiveEventId);
-        if (existing != null) {
-            if ("SUCCESS".equals(existing.getStatus())) {
-                processEventTxService.updateDuplicate(effectiveEventId);
-                log.info("回调幂等返回(SUCCESS): eventId={}, taskId={}", effectiveEventId, task.getTaskId());
-                return buildIdempotentResult(task);
-            }
-            if ("FAILED".equals(existing.getStatus())) {
-                processEventTxService.markProcessing(effectiveEventId);
-                processEventTxService.updateDuplicate(effectiveEventId);
-                log.info("FAILED事件重试: eventId={}, taskId={}", effectiveEventId, task.getTaskId());
-            } else {
-                processEventTxService.updateDuplicate(effectiveEventId);
-                log.info("回调幂等返回(PROCESSING): eventId={}, taskId={}", effectiveEventId, task.getTaskId());
-                return buildIdempotentResult(task);
-            }
-        } else {
-            processEventTxService.tryCreateProcessing(effectiveEventId, task.getTaskId(),
-                    deviceSn, stepLog.getStepId(), stepLog.getId(), "AI_PASS_RECEIVED", payloadJson);
-        }
-
+    /**
+     * 执行步骤状态流转（过站核心逻辑）
+     */
+    private AiNextStepResultVO executeStepTransition(AssemblyTask task, AssemblyStepLog stepLog,
+                                                      String effectiveEventId, String deviceSn) {
         LocalDateTime now = null;
         try {
-            // ═══ 阶段3：执行过站逻辑 ═══
             stateMachine.checkAiPassAllowed(stepLog.getStatus());
             stateMachine.checkStepTransition(STEP_RUNNING, EVENT_AI_PASS);
 
@@ -413,7 +542,6 @@ public class SopExecutionServiceImpl implements SopExecutionService {
                 log.info("AI过站全部步骤完成: taskId={}", task.getTaskId());
             }
 
-            // ═══ 阶段4：markSuccess ═══
             processEventTxService.markSuccess(effectiveEventId, vo.getTaskStatus());
             return vo;
         } catch (BusinessException e) {
@@ -433,6 +561,19 @@ public class SopExecutionServiceImpl implements SopExecutionService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "装配任务不存在");
         }
 
+        String deviceSn = task.getDeviceSn();
+        if (!deviceLock.tryLock(deviceSn)) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE,
+                    "设备 " + deviceSn + " 正在处理中，请稍后重试");
+        }
+        try {
+            return doFinishTask(task, reason);
+        } finally {
+            deviceLock.unlock(deviceSn);
+        }
+    }
+
+    private FinishTaskResultVO doFinishTask(AssemblyTask task, String reason) {
         // 2. 校验状态
         stateMachine.checkFinishTaskAllowed(task.getStatus());
         stateMachine.checkTaskTransition(TASK_RUNNING, EVENT_FINISH_TASK);
@@ -442,7 +583,7 @@ public class SopExecutionServiceImpl implements SopExecutionService {
         // 3. 结束当前运行中的步骤（标记为手动通过）
         AssemblyStepLog runningLog = assemblyStepLogMapper.selectOne(
                 new LambdaQueryWrapper<AssemblyStepLog>()
-                        .eq(AssemblyStepLog::getTaskId, taskId)
+                        .eq(AssemblyStepLog::getTaskId, task.getTaskId())
                         .eq(AssemblyStepLog::getStatus, STEP_RUNNING)
                         .eq(AssemblyStepLog::getDeleted, 0));
         if (runningLog != null) {
@@ -470,7 +611,7 @@ public class SopExecutionServiceImpl implements SopExecutionService {
             totalDuration = Duration.between(task.getStartTime(), now).getSeconds();
         }
 
-        log.info("手动完成任务: taskId={}, reason={}", taskId, reason);
+        log.info("手动完成任务: taskId={}, reason={}", task.getTaskId(), reason);
 
         FinishTaskResultVO vo = new FinishTaskResultVO();
         vo.setTaskId(task.getTaskId());
@@ -484,14 +625,28 @@ public class SopExecutionServiceImpl implements SopExecutionService {
     // ==================== 私有方法 ====================
 
     /**
-     * 生成有效 eventId（旧格式无 eventId 时自动生成）
+     * 幂等返回（新格式）：按 taskId 或 deviceSn 宽松查找任务，不要求 RUNNING
      */
-    private String generateEffectiveEventId(AiNextStepCallbackCommand command, AssemblyTask task, AssemblyStepLog stepLog) {
-        if (command.getEventId() != null && !command.getEventId().isEmpty()) {
-            return command.getEventId();
+    private AiNextStepResultVO buildIdempotentResult(Long taskId, String deviceSn) {
+        AssemblyTask task;
+        if (taskId != null) {
+            task = assemblyTaskMapper.selectById(taskId);
+        } else {
+            task = assemblyTaskMapper.selectOne(
+                    new LambdaQueryWrapper<AssemblyTask>()
+                            .eq(AssemblyTask::getDeviceSn, deviceSn)
+                            .eq(AssemblyTask::getDeleted, 0)
+                            .orderByDesc(AssemblyTask::getCreateTime)
+                            .last("limit 1"));
         }
-        return "LEGACY_AI_PASS:" + task.getDeviceSn() + ":" + task.getTaskId() + ":"
-                + stepLog.getId() + ":AUTO_NEXT";
+        if (task == null || task.getDeleted() == 1) {
+            log.warn("幂等返回时未找到任务: taskId={}, deviceSn={}", taskId, deviceSn);
+            AiNextStepResultVO vo = new AiNextStepResultVO();
+            vo.setDeviceSn(deviceSn);
+            vo.setHasNextStep(false);
+            return vo;
+        }
+        return buildIdempotentResult(task);
     }
 
     /**
@@ -657,5 +812,7 @@ public class SopExecutionServiceImpl implements SopExecutionService {
 
         log.info("生成质量追溯记录: taskId={}, result={}, total={}, aiPass={}, manual={}, exception={}",
                 task.getTaskId(), finalResult, totalSteps, passedSteps, manualSteps, exceptionCount);
+
+        processEventTxService.recordQualityTraceCreated(task.getTaskId(), task.getDeviceSn(), finalResult);
     }
 }

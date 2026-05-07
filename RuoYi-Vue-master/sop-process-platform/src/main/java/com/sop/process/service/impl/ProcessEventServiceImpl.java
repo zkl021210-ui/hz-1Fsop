@@ -7,6 +7,8 @@ import com.sop.process.service.ProcessEventService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
  * 流程事件服务实现（仅读操作）
  *
@@ -28,5 +30,26 @@ public class ProcessEventServiceImpl implements ProcessEventService {
         return processEventMapper.selectOne(
                 new LambdaQueryWrapper<ProcessEvent>()
                         .eq(ProcessEvent::getEventId, eventId));
+    }
+
+    @Override
+    public List<ProcessEvent> listFailedVisionErrors(String deviceSn) {
+        return processEventMapper.selectList(
+                new LambdaQueryWrapper<ProcessEvent>()
+                        .eq(ProcessEvent::getDeviceSn, deviceSn)
+                        .eq(ProcessEvent::getEventType, "VISION_SERVICE_ERROR")
+                        .eq(ProcessEvent::getStatus, "FAILED")
+                        .orderByDesc(ProcessEvent::getCreateTime)
+                        .last("limit 10"));
+    }
+
+    @Override
+    public List<ProcessEvent> listAllFailedVisionErrors() {
+        return processEventMapper.selectList(
+                new LambdaQueryWrapper<ProcessEvent>()
+                        .eq(ProcessEvent::getEventType, "VISION_SERVICE_ERROR")
+                        .eq(ProcessEvent::getStatus, "FAILED")
+                        .orderByDesc(ProcessEvent::getCreateTime)
+                        .last("limit 20"));
     }
 }

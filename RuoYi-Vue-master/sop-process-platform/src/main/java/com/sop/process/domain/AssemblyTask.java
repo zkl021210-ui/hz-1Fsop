@@ -48,6 +48,10 @@ public class AssemblyTask {
     /** 任务完成时间 */
     private LocalDateTime finishTime;
 
+    /** 乐观锁版本号 */
+    @Version
+    private Integer version;
+
     /** 是否删除（0-正常 1-删除） */
     @TableLogic
     private Integer deleted;
